@@ -1,0 +1,4 @@
+[
+  { "icon": "☁", "name": "Cyber Sea", "description": "AI companion / agent system", "tags": ["WIP ◌", "Python", "LLM"], "url": "/projects/" },
+  { "icon": "✦", "name": "RotaryPosEmb", "description": "Ascend C Operator", "tags": ["WIP ◌", "Ascend C", "NPU"], "url": "/projects/" }
+]

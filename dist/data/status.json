@@ -1,0 +1,7 @@
+[
+  { "icon": "▰", "label": "learning", "value": "C++ / Algorithms", "progress": "▣▣▣▣▢▢" },
+  { "icon": "♡", "label": "exploring", "value": "AI / PyTorch", "progress": "▣▣▣▢▢▢" },
+  { "icon": "☆", "label": "struggling", "value": "Ascend C", "progress": "▣▣▢▢▢▢" },
+  { "icon": "◇", "label": "building", "value": "Cyber Sea", "progress": "▣▣▣▣▢▢" },
+  { "icon": "☷", "label": "mood", "value": "(´▽｀)　♡", "progress": "" }
+]
