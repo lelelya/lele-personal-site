@@ -56,18 +56,21 @@ function renderProfile(profile) {
   info.append(createElement('h2', { text: `♡ ${profile.name}` }));
   const interests = createElement('ul');
   profile.interests.forEach((interest) => interests.append(createElement('li', { text: interest })));
-  const stats = createElement('div', { className: 'profile-stats' });
-  stats.append(
-    createElement('span', { text: `Mood：${profile.mood}` }),
-    createElement('span', { text: `Status：${profile.status}` }),
-    createElement('span', { text: `Visits：${profile.visits}` })
-  );
-  appendChildren(info, interests, stats);
+  appendChildren(info, interests);
 
   const linkBox = createElement('div', { className: 'link-box' });
   linkBox.append(createElement('strong', { text: '♡ LINK' }));
-  const links = createElement('div');
-  profile.links.forEach((link) => links.append(createElement('a', { text: link.label, href: link.url })));
+  const links = createElement('div', { className: 'profile-links' });
+  profile.links.forEach((link) => {
+    if (link.action === 'blogroll') {
+      const button = createElement('button', { className: 'blogroll-button', text: link.label });
+      button.type = 'button';
+      button.addEventListener('click', () => document.querySelector('#blogroll-dialog')?.showModal());
+      links.append(button);
+    } else {
+      links.append(createElement('a', { text: link.label, href: link.url }));
+    }
+  });
   linkBox.append(links);
   container.replaceChildren(top, info, linkBox);
 }
@@ -78,41 +81,37 @@ function renderIntroduction(profile) {
   container.replaceChildren(
     createElement('h1', { text: introduction.title }),
     createElement('p', { text: introduction.text }),
-    createElement('p', { className: 'welcome-sign', text: introduction.signature }),
-    createElement('img', { className: 'welcome-mascot', src: profile.avatar, alt: 'little jellyfish.exe 在窗口角落探头' })
+    createElement('p', { className: 'welcome-sign', text: introduction.signature })
   );
-}
-
-function renderStatus(items) {
-  const container = document.querySelector('#current-list');
-  container.replaceChildren(...items.map((item) => appendChildren(
-    createElement('div', { className: 'current-row' }),
-    createElement('span', { className: 'current-icon', text: item.icon }),
-    createElement('b', { text: item.label }),
-    createElement('span', { text: item.value }),
-    createElement('span', { className: 'blocks', text: item.progress })
-  )));
 }
 
 function renderDiary(items) {
   const container = document.querySelector('#diary-list');
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no diary entries yet...' }));
+    return;
+  }
   container.replaceChildren(...items.map((item) => appendChildren(
-    createElement('a', { className: 'desk-line', href: item.url }),
+    createElement(item.url ? 'a' : 'div', { className: 'desk-line', href: item.url }),
     createElement('time', { text: item.date }),
     createElement('span', { text: item.title }),
-    createElement('span', { className: 'likes', text: `♡ ${item.likes}` })
+    Number.isFinite(item.likes) ? createElement('span', { className: 'likes', text: `♡ ${item.likes}` }) : null
   )));
 }
 
 function renderProjects(items) {
   const container = document.querySelector('#project-list');
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no projects yet...' }));
+    return;
+  }
   container.replaceChildren(...items.map((item) => {
     const details = createElement('div');
     const tags = createElement('div', { className: 'tiny-tags' });
     item.tags.forEach((tag) => tags.append(createElement('span', { text: tag })));
     appendChildren(details, createElement('h3', { text: item.name }), createElement('p', { text: item.description }), tags);
     return appendChildren(
-      createElement('a', { className: 'project-line', href: item.url }),
+      createElement(item.url ? 'a' : 'div', { className: 'project-line', href: item.url }),
       createElement('div', { className: 'project-thumb', text: item.icon }),
       details,
       createElement('span', { text: '♡' })
@@ -122,27 +121,54 @@ function renderProjects(items) {
 
 function renderNotes(items) {
   const container = document.querySelector('#notes-list');
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no notes yet...' }));
+    return;
+  }
   container.replaceChildren(...items.map((item) => appendChildren(
-    createElement('a', { className: 'desk-line', href: item.url }),
+    createElement(item.url ? 'a' : 'div', { className: 'desk-line', href: item.url }),
     createElement('span', { text: `▱ ${item.category}` }),
     createElement('span', { text: item.file }),
     createElement('time', { text: item.date })
   )));
 }
 
-function renderTodo(items) {
-  const container = document.querySelector('#todo-list');
+function renderProjectPage(items) {
+  const container = document.querySelector('#project-page-list');
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no projects yet...' }));
+    return;
+  }
   container.replaceChildren(...items.map((item) => {
-    const row = createElement('li', { text: item.text });
-    if (item.done) row.classList.add('is-done');
-    return row;
+    const card = createElement(item.url ? 'a' : 'article', { className: 'project-card', href: item.url });
+    const tags = createElement('div', { className: 'tags' });
+    (item.tags || []).forEach((tag) => tags.append(createElement('span', { text: tag })));
+    return appendChildren(card, createElement('h2', { text: item.name }), createElement('p', { text: item.description }), tags);
+  }));
+}
+
+function renderNotesPage(items) {
+  const container = document.querySelector('#notes-page-list');
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no notes yet...' }));
+    return;
+  }
+  container.replaceChildren(...items.map((item) => {
+    const row = createElement(item.url ? 'a' : 'div', { className: 'file', href: item.url });
+    const details = appendChildren(createElement('div'), createElement('h3', { text: item.file }), createElement('p', { text: item.category }));
+    return appendChildren(row, createElement('span', { className: 'file-icon', text: '♡' }), details, createElement('time', { text: item.date }));
   }));
 }
 
 function renderMusic(music) {
   const container = document.querySelector('#music-player');
   const cover = createElement('div', { className: 'player-cover' });
-  cover.append(createElement('img', { src: music.cover, alt: music.coverAlt }));
+  if (music.cover) {
+    cover.append(createElement('img', { src: music.cover, alt: music.coverAlt || '' }));
+  } else {
+    cover.textContent = '♫';
+    cover.setAttribute('aria-hidden', 'true');
+  }
   const info = createElement('div', { className: 'player-info' });
   const timeline = createElement('div', { className: 'player-line' });
   timeline.style.marginTop = '8px';
@@ -166,11 +192,9 @@ function showLoadError(containerId) {
 async function initializeHomepage() {
   const sources = [
     ['profile.json', (data) => { renderProfile(data); renderIntroduction(data); }, ['#profile-content', '#introduction-content']],
-    ['status.json', renderStatus, ['#current-list']],
     ['projects.json', renderProjects, ['#project-list']],
     ['diary.json', renderDiary, ['#diary-list']],
     ['notes.json', renderNotes, ['#notes-list']],
-    ['todo.json', renderTodo, ['#todo-list']],
     ['music.json', renderMusic, ['#music-player']]
   ];
 
@@ -185,3 +209,31 @@ async function initializeHomepage() {
 }
 
 if (document.querySelector('.desk-home')) initializeHomepage();
+
+if (document.querySelector('#project-page-list')) {
+  loadJson('projects.json').then(renderProjectPage).catch((error) => {
+    console.error(error);
+    showLoadError('#project-page-list');
+  });
+}
+
+if (document.querySelector('#notes-page-list')) {
+  loadJson('notes.json').then(renderNotesPage).catch((error) => {
+    console.error(error);
+    showLoadError('#notes-page-list');
+  });
+}
+
+const contentGuide = document.querySelector('#content-guide');
+if (contentGuide) {
+  const guideText = document.querySelector('#content-guide-text');
+  const guideFiles = { projects: 'projects.json', diary: 'diary.json', notes: 'notes.json' };
+  document.querySelectorAll('[data-content-guide]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const file = guideFiles[button.dataset.contentGuide];
+      if (!file) return;
+      guideText.textContent = `目前没有在线编辑功能。站长可以编辑 dist/data/${file} 添加内容。`;
+      contentGuide.showModal();
+    });
+  });
+}

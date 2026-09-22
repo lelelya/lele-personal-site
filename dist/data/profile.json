@@ -1,21 +1,15 @@
 {
   "name": "lele",
-  "avatar": "/assets/little-jellyfish.png",
-  "avatarAlt": "戴着小恶魔角的粉色像素水母",
+  "avatar": "/assets/lele-pixel-avatar-idle.gif",
+  "avatarAlt": "lele 的粉色像素风头像",
   "greeting": ["Nice to", "meet you", "(｡>﹏<｡)♡"],
   "interests": ["Computer Science", "AI / LLM", "C++ & Algorithms", "Making cute things"],
-  "mood": "(´▽｀)",
-  "status": "online ●",
-  "visits": "000482 ♡",
   "introduction": {
     "title": "Welcome to my site！♡",
     "text": "I'm lele. This is a compilation of my interests, thoughts and projects. I'm especially interested in AI, algorithms and building cute things. I hope this little space can record my growth and also bring a bit of happiness to you. ♡",
     "signature": "— lele"
   },
   "links": [
-    { "label": "▰ Projects ↗", "url": "#projects" },
-    { "label": "☆ Notes ↗", "url": "#notes" },
-    { "label": "♡ About ↗", "url": "/about/" },
-    { "label": "✉ Guestbook", "url": "#guestbook" }
+    { "label": "Blogroll↗", "action": "blogroll" }
   ]
 }
