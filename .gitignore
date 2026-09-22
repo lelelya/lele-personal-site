@@ -1,0 +1,6 @@
+node_modules/
+.npm-cache/
+outputs/
+work/
+dist/assets/lelelya-blog-wordmark.png
+dist/assets/lelelya-blog-wordmark-v2.png

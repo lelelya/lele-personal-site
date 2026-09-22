@@ -1,0 +1,13 @@
+{
+  "name": "lele-personal-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-content.mjs"
+  },
+  "devDependencies": {
+    "gray-matter": "^4.0.3",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0"
+  }
+}

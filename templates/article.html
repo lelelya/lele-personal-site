@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="{{DESCRIPTION}}">
+  <title>{{TITLE}}｜Lelelya's Blog</title>
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body class="article-page">
+  <a class="skip" href="#main">跳到正文</a>
+  <div class="progress" aria-hidden="true"></div>
+  <header class="topbar">
+    <nav class="shell nav-window" aria-label="主要导航">
+      <a class="brand" href="/">♡ Lelelya's Blog</a>
+      <div class="navlinks">
+        <a href="/">Home</a>
+        <a href="/diary/">Diary</a>
+        <a href="/notes/">Study Note</a>
+        <a href="/projects/">Projects</a>
+      </div>
+    </nav>
+  </header>
+  <main id="main" class="article">
+    <div class="article-window">
+      <div class="article-window-bar"><span>♡ {{TYPE_LABEL}}.txt</span><span aria-hidden="true">— □ ×</span></div>
+    <article>
+      <header class="article-head">
+        <a class="crumb" href="{{LIST_URL}}">♡ {{TYPE_LABEL}}</a>
+        <h1>{{TITLE}}</h1>
+        <time datetime="{{DATE}}">{{DATE}}</time>
+        <div class="article-tags">{{TAGS}}</div>
+      </header>
+      <div class="prose">{{BODY}}</div>
+    </article>
+    </div>
+    <nav class="article-nav" aria-label="文章导航">
+      <a href="{{LIST_URL}}">← 返回{{TYPE_LABEL}}列表</a>
+      <a href="/">返回首页 ♡</a>
+    </nav>
+  </main>
+  <footer class="footer"><div class="shell footer-row"><span>Lelelya's Blog</span><span>thanks for visiting ☆</span></div></footer>
+  <script src="/assets/site.js"></script>
+</body>
+</html>

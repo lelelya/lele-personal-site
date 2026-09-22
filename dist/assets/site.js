@@ -91,11 +91,11 @@ function renderDiary(items) {
     container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no diary entries yet...' }));
     return;
   }
-  container.replaceChildren(...items.map((item) => appendChildren(
+  container.replaceChildren(...items.slice(0, 3).map((item) => appendChildren(
     createElement(item.url ? 'a' : 'div', { className: 'desk-line', href: item.url }),
     createElement('time', { text: item.date }),
     createElement('span', { text: item.title }),
-    Number.isFinite(item.likes) ? createElement('span', { className: 'likes', text: `♡ ${item.likes}` }) : null
+    item.tags?.length ? createElement('span', { className: 'entry-tags', text: item.tags.join(' · ') }) : null
   )));
 }
 
@@ -125,10 +125,10 @@ function renderNotes(items) {
     container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no notes yet...' }));
     return;
   }
-  container.replaceChildren(...items.map((item) => appendChildren(
+  container.replaceChildren(...items.slice(0, 3).map((item) => appendChildren(
     createElement(item.url ? 'a' : 'div', { className: 'desk-line', href: item.url }),
-    createElement('span', { text: `▱ ${item.category}` }),
-    createElement('span', { text: item.file }),
+    createElement('span', { text: item.tags?.length ? `▱ ${item.tags[0]}` : '▱' }),
+    createElement('span', { text: item.title }),
     createElement('time', { text: item.date })
   )));
 }
@@ -147,15 +147,19 @@ function renderProjectPage(items) {
   }));
 }
 
-function renderNotesPage(items) {
-  const container = document.querySelector('#notes-page-list');
+function renderArticleList(items, containerId, emptyText) {
+  const container = document.querySelector(containerId);
   if (!items.length) {
-    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no notes yet...' }));
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: emptyText }));
     return;
   }
   container.replaceChildren(...items.map((item) => {
-    const row = createElement(item.url ? 'a' : 'div', { className: 'file', href: item.url });
-    const details = appendChildren(createElement('div'), createElement('h3', { text: item.file }), createElement('p', { text: item.category }));
+    const row = createElement('a', { className: 'file', href: item.url });
+    const details = appendChildren(
+      createElement('div'),
+      createElement('h3', { text: item.title }),
+      item.tags?.length ? createElement('p', { text: item.tags.join(' · ') }) : null
+    );
     return appendChildren(row, createElement('span', { className: 'file-icon', text: '♡' }), details, createElement('time', { text: item.date }));
   }));
 }
@@ -218,21 +222,32 @@ if (document.querySelector('#project-page-list')) {
 }
 
 if (document.querySelector('#notes-page-list')) {
-  loadJson('notes.json').then(renderNotesPage).catch((error) => {
+  loadJson('notes.json').then((items) => renderArticleList(items, '#notes-page-list', 'no notes yet...')).catch((error) => {
     console.error(error);
     showLoadError('#notes-page-list');
+  });
+}
+
+if (document.querySelector('#diary-page-list')) {
+  loadJson('diary.json').then((items) => renderArticleList(items, '#diary-page-list', 'no diary entries yet...')).catch((error) => {
+    console.error(error);
+    showLoadError('#diary-page-list');
   });
 }
 
 const contentGuide = document.querySelector('#content-guide');
 if (contentGuide) {
   const guideText = document.querySelector('#content-guide-text');
-  const guideFiles = { projects: 'projects.json', diary: 'diary.json', notes: 'notes.json' };
+  const guideFiles = {
+    projects: '编辑 dist/data/projects.json 添加真实项目。',
+    diary: '在 content/diary/ 新建 Markdown 文件，然后运行 npm run build。',
+    notes: '在 content/notes/ 新建 Markdown 文件，然后运行 npm run build。'
+  };
   document.querySelectorAll('[data-content-guide]').forEach((button) => {
     button.addEventListener('click', () => {
       const file = guideFiles[button.dataset.contentGuide];
       if (!file) return;
-      guideText.textContent = `目前没有在线编辑功能。站长可以编辑 dist/data/${file} 添加内容。`;
+      guideText.textContent = `目前没有在线编辑功能。站长可以${file}`;
       contentGuide.showModal();
     });
   });
