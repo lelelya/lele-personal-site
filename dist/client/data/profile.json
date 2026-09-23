@@ -1,13 +1,13 @@
 {
-  "name": "lele",
+  "name": "lelelya",
   "avatar": "/assets/lele-pixel-avatar-idle.gif",
   "avatarAlt": "lele 的粉色像素风头像",
   "greeting": ["Nice to", "meet you", "(｡>﹏<｡)♡"],
-  "interests": ["Computer Science", "AI / LLM", "C++ & Algorithms", "Making cute things"],
+  "interests": ["QQ&Wechat:UMA", "github:lelelya", "email:lelelya@163.com", "NOW:studing..."],
   "introduction": {
     "title": "Welcome to my site！♡",
     "text": "I'm lele. This is a compilation of my interests, thoughts and projects. I'm especially interested in AI, algorithms and building cute things. I hope this little space can record my growth and also bring a bit of happiness to you. ♡",
-    "signature": "— lele"
+    "signature": "— lelelya"
   },
   "links": [
     { "label": "Blogroll↗", "action": "blogroll" },
