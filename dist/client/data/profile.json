@@ -10,7 +10,6 @@
     "signature": "— lelelya"
   },
   "links": [
-    { "label": "Blogroll↗", "action": "blogroll" },
-    { "label": "About↗", "url": "/about/" }
+    { "label": "Blogroll↗", "action": "blogroll" }
   ]
 }

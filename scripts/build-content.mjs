@@ -188,16 +188,7 @@ async function main() {
       url: project.url,
       excerpt: project.description || '',
       text: `${project.name} ${project.description || ''} ${(project.tags || []).join(' ')}`
-    })),
-    {
-      type: 'page',
-      title: 'About Lelelya',
-      date: '',
-      tags: ['about'],
-      url: '/about/',
-      excerpt: 'About this blog and its author.',
-      text: 'about lele lelelya blog profile personal website'
-    }
+    }))
   ];
   await writeFile(path.join(outputRoot, 'data', 'search-index.json'), `${JSON.stringify(searchIndex, null, 2)}\n`, 'utf8');
 
