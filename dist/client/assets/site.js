@@ -164,6 +164,32 @@ function renderArticleList(items, containerId, emptyText) {
   }));
 }
 
+function renderBlogroll(items) {
+  const container = document.querySelector('#blogroll-list');
+  if (!container) return;
+  if (!items.length) {
+    container.replaceChildren(createElement('p', { className: 'content-empty', text: 'no friends yet...' }));
+    return;
+  }
+  container.replaceChildren(...items.map((item) => {
+    const card = createElement('a', { className: 'blogroll-card', href: item.url });
+    card.target = '_blank';
+    card.rel = 'noopener noreferrer';
+    const avatar = createElement('img', {
+      src: item.avatar,
+      alt: item.avatarAlt || `${item.name} 的网站标志`
+    });
+    const copy = createElement('div');
+    appendChildren(
+      copy,
+      createElement('strong', { text: `${item.name} ↗` }),
+      createElement('p', { text: item.description }),
+      createElement('small', { text: new URL(item.url).hostname })
+    );
+    return appendChildren(card, avatar, copy);
+  }));
+}
+
 function renderMusic(music) {
   const container = document.querySelector('#music-player');
   const cover = createElement('div', { className: 'player-cover' });
@@ -404,7 +430,8 @@ async function initializeHomepage() {
     ['projects.json', renderProjects, ['#project-list']],
     ['diary.json', renderDiary, ['#diary-list']],
     ['notes.json', renderNotes, ['#notes-list']],
-    ['music.json', renderMusic, ['#music-player']]
+    ['music.json', renderMusic, ['#music-player']],
+    ['blogroll.json', renderBlogroll, ['#blogroll-list']]
   ];
 
   await Promise.all(sources.map(async ([file, render, containers]) => {

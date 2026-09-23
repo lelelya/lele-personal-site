@@ -30,6 +30,7 @@
 - `dist/client/data/profile.json`：昵称、头像、问候、兴趣、自我介绍和 Profile 链接。`Blogroll↗` 使用 `"action": "blogroll"` 打开空状态弹窗；普通链接使用 `label` 和 `url`。
 - `dist/client/data/projects.json`：只添加真实项目；可填 `icon`、`name`、`description`、`tags` 和实际存在的 `url`。
 - `dist/client/data/music.json`：填写歌曲、歌手、封面和音频路径。音频文件放入 `dist/client/assets/audio/`，并确保你拥有公开播放权。
+- `dist/client/data/blogroll.json`：添加友链名称、网址、简介和头像路径。友链头像放入 `dist/client/assets/friends/`；页面会自动生成可点击的友链卡片。
 
 Guestbook 仍只有真实空状态；没有接入留言服务或数据库。三个内容窗口中的「＋」是站长写作提示，不是在线编辑器。
 
