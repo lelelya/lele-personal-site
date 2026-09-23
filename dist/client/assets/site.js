@@ -347,76 +347,45 @@ function initializeSearch() {
   });
 }
 
-function initializeGuestbook() {
-  const list = document.querySelector('#guestbook-list');
-  const form = document.querySelector('#guestbook-form');
-  const status = document.querySelector('#guestbook-status');
-  const count = document.querySelector('#guestbook-count');
-  if (!list || !form || !status || !count) return;
-  const textarea = form.elements.message;
-  const submit = form.querySelector('button[type="submit"]');
-
-  const formatDate = (value) => {
-    const date = new Date(value);
-    return Number.isNaN(date.valueOf()) ? '' : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
-  };
-  const renderMessages = (messages) => {
-    if (!messages.length) {
-      list.replaceChildren(createElement('p', { className: 'guestbook-empty', text: 'no messages yet...' }));
-      return;
+async function initializeGuestbook() {
+  const container = document.querySelector('#guestbook-comments');
+  if (!container) return;
+  try {
+    const config = await loadJson('guestbook.json');
+    if (!config.repo || !config.repoId || !config.category || !config.categoryId) {
+      throw new Error('Giscus is not configured');
     }
-    list.replaceChildren(...messages.map((item) => {
-      const card = createElement('article', { className: 'guestbook-message' });
-      const head = appendChildren(
-        createElement('div', { className: 'guestbook-message-head' }),
-        createElement('strong', { text: `♡ ${item.nickname}` }),
-        createElement('time', { text: formatDate(item.created_at) })
-      );
-      return appendChildren(card, head, createElement('p', { text: item.message }));
-    }));
-  };
-  const loadMessages = async () => {
-    try {
-      const response = await fetch('/api/guestbook', { headers: { accept: 'application/json' } });
-      if (!response.ok) throw new Error('Unable to load messages');
-      const data = await response.json();
-      renderMessages(Array.isArray(data.messages) ? data.messages : []);
-    } catch (error) {
-      console.error(error);
-      list.replaceChildren(createElement('p', { className: 'guestbook-empty', text: 'messages are temporarily unavailable' }));
-    }
-  };
-
-  textarea.addEventListener('input', () => { count.textContent = String(textarea.value.length); });
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!form.reportValidity()) return;
-    submit.disabled = true;
-    status.textContent = 'sending...';
-    const formData = new FormData(form);
-    try {
-      const response = await fetch('/api/guestbook', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({
-          nickname: formData.get('nickname'),
-          message: formData.get('message'),
-          website: formData.get('website')
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Unable to send message');
-      form.reset();
-      count.textContent = '0';
-      status.textContent = 'message posted ♡';
-      await loadMessages();
-    } catch (error) {
-      status.textContent = error.message || '留言发送失败，请稍后再试。';
-    } finally {
-      submit.disabled = false;
-    }
-  });
-  loadMessages();
+    container.replaceChildren();
+    const script = document.createElement('script');
+    script.src = 'https://giscus.app/client.js';
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    Object.entries({
+      repo: config.repo,
+      'repo-id': config.repoId,
+      category: config.category,
+      'category-id': config.categoryId,
+      mapping: 'specific',
+      term: 'guestbook',
+      strict: '0',
+      reactionsEnabled: '1',
+      emitMetadata: '0',
+      inputPosition: 'top',
+      theme: 'light',
+      lang: 'zh-CN',
+      loading: 'lazy'
+    }).forEach(([key, value]) => { script.dataset[key] = value; });
+    container.append(script);
+  } catch (error) {
+    console.error(error);
+    container.replaceChildren(
+      appendChildren(
+        createElement('div', { className: 'guestbook-empty' }),
+        createElement('p', { text: 'guestbook is being connected...' }),
+        createElement('small', { text: 'GitHub login will be required to leave a message ♡' })
+      )
+    );
+  }
 }
 
 function showLoadError(containerId) {
