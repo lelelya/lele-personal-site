@@ -10,6 +10,7 @@
     "signature": "— lele"
   },
   "links": [
-    { "label": "Blogroll↗", "action": "blogroll" }
+    { "label": "Blogroll↗", "action": "blogroll" },
+    { "label": "About↗", "url": "/about/" }
   ]
 }

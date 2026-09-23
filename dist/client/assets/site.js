@@ -174,18 +174,223 @@ function renderMusic(music) {
     cover.setAttribute('aria-hidden', 'true');
   }
   const info = createElement('div', { className: 'player-info' });
-  const timeline = createElement('div', { className: 'player-line' });
-  timeline.style.marginTop = '8px';
-  timeline.append(document.createElement('i'));
+  if (!music.audio) {
+    info.append(
+      createElement('strong', { text: 'no track loaded...' }),
+      createElement('p', { className: 'player-empty', text: 'add an audio file to play ♫' })
+    );
+    container.replaceChildren(appendChildren(createElement('div', { className: 'player-body' }), cover, info));
+    return;
+  }
+
+  const audio = createElement('audio', { src: music.audio });
+  audio.preload = 'metadata';
+  const controls = createElement('div', { className: 'player-controls' });
+  const play = createElement('button', { className: 'player-play', text: '▶' });
+  play.type = 'button';
+  play.setAttribute('aria-label', '播放');
+  const progressInput = createElement('input', { className: 'player-progress' });
+  progressInput.type = 'range';
+  progressInput.min = '0';
+  progressInput.max = '100';
+  progressInput.value = '0';
+  progressInput.step = '0.1';
+  progressInput.setAttribute('aria-label', '播放进度');
+  const mute = createElement('button', { className: 'player-mute', text: '♪' });
+  mute.type = 'button';
+  mute.setAttribute('aria-label', '静音');
+  const time = createElement('small', { className: 'player-time', text: '0:00 / --:--' });
+  const state = createElement('small', { className: 'player-state', text: '' });
+
+  const formatTime = (seconds) => {
+    if (!Number.isFinite(seconds)) return '--:--';
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+  };
+  const sync = () => {
+    progressInput.value = audio.duration ? String(audio.currentTime / audio.duration * 100) : '0';
+    time.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+  };
+  play.addEventListener('click', async () => {
+    try {
+      if (audio.paused) await audio.play();
+      else audio.pause();
+    } catch {
+      state.textContent = 'unable to play this track';
+    }
+  });
+  progressInput.addEventListener('input', () => {
+    if (audio.duration) audio.currentTime = Number(progressInput.value) / 100 * audio.duration;
+  });
+  mute.addEventListener('click', () => {
+    audio.muted = !audio.muted;
+    mute.textContent = audio.muted ? '×' : '♪';
+    mute.setAttribute('aria-label', audio.muted ? '取消静音' : '静音');
+  });
+  audio.addEventListener('play', () => { play.textContent = 'Ⅱ'; play.setAttribute('aria-label', '暂停'); });
+  audio.addEventListener('pause', () => { play.textContent = '▶'; play.setAttribute('aria-label', '播放'); });
+  audio.addEventListener('timeupdate', sync);
+  audio.addEventListener('loadedmetadata', sync);
+  audio.addEventListener('ended', sync);
+  audio.addEventListener('error', () => { state.textContent = 'audio file could not be loaded'; });
+
+  controls.append(play, progressInput, mute);
   info.append(
-    createElement('strong', { text: music.title }),
+    createElement('strong', { text: music.title || 'untitled track' }),
     document.createElement('br'),
-    createElement('span', { text: music.artist }),
-    createElement('div', { className: 'player-controls-2', text: '◀ Ⅱ ▶' }),
-    timeline,
-    createElement('small', { text: `${music.currentTime} / ${music.duration}` })
+    createElement('span', { text: music.artist || 'unknown artist' }),
+    controls,
+    time,
+    state,
+    audio
   );
   container.replaceChildren(appendChildren(createElement('div', { className: 'player-body' }), cover, info));
+}
+
+function initializeSearch() {
+  const form = document.querySelector('#site-search-form');
+  const input = document.querySelector('#site-search');
+  const results = document.querySelector('#search-results');
+  if (!form || !input || !results) return;
+
+  let index = [];
+  let matches = [];
+  let activeIndex = -1;
+  const typeLabels = { diary: 'Diary', notes: 'Study Note', project: 'Project', page: 'Page' };
+
+  const close = () => {
+    results.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    activeIndex = -1;
+  };
+  const setActive = (nextIndex) => {
+    const links = [...results.querySelectorAll('a')];
+    if (!links.length) return;
+    activeIndex = (nextIndex + links.length) % links.length;
+    links.forEach((link, itemIndex) => link.setAttribute('aria-selected', String(itemIndex === activeIndex)));
+    links[activeIndex].scrollIntoView({ block: 'nearest' });
+  };
+  const draw = (query) => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) {
+      matches = [];
+      close();
+      return;
+    }
+    matches = index.filter((item) => [item.title, item.text, ...(item.tags || [])]
+      .join(' ')
+      .toLocaleLowerCase()
+      .includes(normalized)).slice(0, 8);
+    if (!matches.length) {
+      results.replaceChildren(createElement('p', { className: 'search-empty', text: 'no matching pages...' }));
+    } else {
+      results.replaceChildren(...matches.map((item) => {
+        const link = createElement('a', { className: 'search-result', href: item.url });
+        link.setAttribute('role', 'option');
+        link.setAttribute('aria-selected', 'false');
+        const heading = appendChildren(
+          createElement('div', { className: 'search-result-head' }),
+          createElement('strong', { text: item.title }),
+          createElement('span', { text: typeLabels[item.type] || item.type })
+        );
+        return appendChildren(link, heading, item.excerpt ? createElement('small', { text: item.excerpt }) : null);
+      }));
+    }
+    results.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    activeIndex = -1;
+  };
+
+  loadJson('search-index.json').then((items) => { index = Array.isArray(items) ? items : []; }).catch((error) => {
+    console.error(error);
+    results.replaceChildren(createElement('p', { className: 'search-empty', text: 'search is temporarily unavailable' }));
+  });
+  input.addEventListener('input', () => draw(input.value));
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive(activeIndex + 1); }
+    if (event.key === 'ArrowUp') { event.preventDefault(); setActive(activeIndex - 1); }
+    if (event.key === 'Escape') close();
+  });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const target = activeIndex >= 0 ? matches[activeIndex] : matches[0];
+    if (target) location.href = target.url;
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!form.contains(event.target)) close();
+  });
+}
+
+function initializeGuestbook() {
+  const list = document.querySelector('#guestbook-list');
+  const form = document.querySelector('#guestbook-form');
+  const status = document.querySelector('#guestbook-status');
+  const count = document.querySelector('#guestbook-count');
+  if (!list || !form || !status || !count) return;
+  const textarea = form.elements.message;
+  const submit = form.querySelector('button[type="submit"]');
+
+  const formatDate = (value) => {
+    const date = new Date(value);
+    return Number.isNaN(date.valueOf()) ? '' : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  };
+  const renderMessages = (messages) => {
+    if (!messages.length) {
+      list.replaceChildren(createElement('p', { className: 'guestbook-empty', text: 'no messages yet...' }));
+      return;
+    }
+    list.replaceChildren(...messages.map((item) => {
+      const card = createElement('article', { className: 'guestbook-message' });
+      const head = appendChildren(
+        createElement('div', { className: 'guestbook-message-head' }),
+        createElement('strong', { text: `♡ ${item.nickname}` }),
+        createElement('time', { text: formatDate(item.created_at) })
+      );
+      return appendChildren(card, head, createElement('p', { text: item.message }));
+    }));
+  };
+  const loadMessages = async () => {
+    try {
+      const response = await fetch('/api/guestbook', { headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error('Unable to load messages');
+      const data = await response.json();
+      renderMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      console.error(error);
+      list.replaceChildren(createElement('p', { className: 'guestbook-empty', text: 'messages are temporarily unavailable' }));
+    }
+  };
+
+  textarea.addEventListener('input', () => { count.textContent = String(textarea.value.length); });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    submit.disabled = true;
+    status.textContent = 'sending...';
+    const formData = new FormData(form);
+    try {
+      const response = await fetch('/api/guestbook', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          nickname: formData.get('nickname'),
+          message: formData.get('message'),
+          website: formData.get('website')
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to send message');
+      form.reset();
+      count.textContent = '0';
+      status.textContent = 'message posted ♡';
+      await loadMessages();
+    } catch (error) {
+      status.textContent = error.message || '留言发送失败，请稍后再试。';
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  loadMessages();
 }
 
 function showLoadError(containerId) {
@@ -212,7 +417,11 @@ async function initializeHomepage() {
   }));
 }
 
-if (document.querySelector('.desk-home')) initializeHomepage();
+if (document.querySelector('.desk-home')) {
+  initializeHomepage();
+  initializeSearch();
+  initializeGuestbook();
+}
 
 if (document.querySelector('#project-page-list')) {
   loadJson('projects.json').then(renderProjectPage).catch((error) => {
@@ -239,7 +448,7 @@ const contentGuide = document.querySelector('#content-guide');
 if (contentGuide) {
   const guideText = document.querySelector('#content-guide-text');
   const guideFiles = {
-    projects: '编辑 dist/data/projects.json 添加真实项目。',
+    projects: '编辑 dist/client/data/projects.json 添加真实项目。',
     diary: '在 content/diary/ 新建 Markdown 文件，然后运行 npm run build。',
     notes: '在 content/notes/ 新建 Markdown 文件，然后运行 npm run build。'
   };

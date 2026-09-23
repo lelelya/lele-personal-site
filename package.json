@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build-content.mjs"
+    "build": "node scripts/build-content.mjs",
+    "db:generate": "drizzle-kit generate",
+    "check:worker": "node scripts/check-worker.mjs"
   },
   "devDependencies": {
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2",
     "gray-matter": "^4.0.3",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0"
