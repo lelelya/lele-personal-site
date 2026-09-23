@@ -1,0 +1,279 @@
+<!-- Generated from content/*.md by scripts/build-content.mjs. -->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="RoPE 算子学习笔记（一）：从公式到 PyTorch Reference 实现">
+  <title>RoPE 算子学习笔记（一）：从公式到 PyTorch Reference 实现｜Lelelya's Blog</title>
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body class="article-page">
+  <a class="skip" href="#main">跳到正文</a>
+  <div class="progress" aria-hidden="true"></div>
+  <header class="topbar">
+    <nav class="shell nav-window" aria-label="主要导航">
+      <a class="brand" href="/">♡ Lelelya's Blog</a>
+      <div class="navlinks">
+        <a href="/">Home</a>
+        <a href="/diary/">Diary</a>
+        <a href="/notes/">Study Note</a>
+        <a href="/projects/">Projects</a>
+      </div>
+    </nav>
+  </header>
+  <main id="main" class="article">
+    <div class="article-window">
+      <div class="article-window-bar"><span>♡ Study Note.txt</span><span aria-hidden="true">— □ ×</span></div>
+    <article>
+      <header class="article-head">
+        <a class="crumb" href="/notes/">♡ Study Note</a>
+        <h1>RoPE 算子学习笔记（一）：从公式到 PyTorch Reference 实现</h1>
+        <time datetime="2026-09-22">2026-09-22</time>
+        <div class="article-tags"><span>RoPE</span><span>PyTorch</span><span>算子</span></div>
+      </header>
+      <div class="prose"><p>在阅读这篇笔记之前，我得对其他人或者未来的我声明：也许你觉得我记下来的东西有点蠢，但请不要嘲笑我……(つД`)ノ 这些对 2026.9.22 的我来说已经很难了口牙。</p>
+<p>看到 AI 算子开发与性能优化的挑战赛报名通知的时候，我发现我连算子是什么都不知道。那就只好现在开始学了！再借此写个和学习有关的文章放到博客上，说不定还能混入某社团，对的对的。</p>
+<h2>一、环境准备</h2>
+<p>这次学习的目标是尝试实现 RoPE（Rotary Position Embedding，旋转位置编码），并为之后使用 Ascend C 实现 RoPE 算子做准备。</p>
+<p>因为之前没有系统使用过 PyTorch，所以我首先从配置 Python 和 PyTorch 环境开始。</p>
+<p>电脑上已经安装了 Python 3.14，但最开始运行：</p>
+<pre><code class="hljs"><span class="hljs-keyword">import</span> torch
+</code></pre>
+<p>时出现了：</p>
+<pre><code class="hljs">ModuleNotFoundError: No module named 'torch'
+</code></pre>
+<p>于是我通过 pip 安装了 PyTorch。过程中还遇到了 NumPy 缺失、版本输出写法错误等问题，最后成功运行 PyTorch。</p>
+<p>这一部分主要熟悉了 Python 包的安装、<code>import</code> 的作用，以及如何在编辑器和终端中运行 Python 文件。</p>
+<h2>二、认识 Tensor 和 shape</h2>
+<p>正式开始 RoPE 之前，sol 老师先带我用 PyTorch 创建了一组简单的数据：</p>
+<pre><code class="hljs">x = torch.arange(<span class="hljs-number">128</span>, dtype=torch.float32)
+x = x.reshape(<span class="hljs-number">1</span>, <span class="hljs-number">8</span>, <span class="hljs-number">1</span>, <span class="hljs-number">16</span>)
+</code></pre>
+<p><code>torch.arange(128)</code> 会产生从 0 到 127 的 128 个数字。最开始这些数据是一维的，而 <code>reshape</code> 可以在不改变数据总量的情况下重新组织 Tensor 的形状。</p>
+<p>这里将 <code>x</code> reshape 成了 <code>[1, 8, 1, 16]</code>，对应 <code>[B, S, H, dim]</code>。其中 <code>B</code> 表示 batch，<code>S</code> 表示序列长度，<code>H</code> 表示 head 数量，<code>dim</code> 表示每个 head 的维度。</p>
+<p>在后面的测试中，我尝试把 shape 从 <code>[1, 8, 1, 16]</code> 改成 <code>[1, 8, 1, 32]</code>，但仍然只创建了 128 个元素，因此出现报错。因为 1 × 8 × 1 × 16 = 128，而 1 × 8 × 1 × 32 = 256……这让我理解了 <code>reshape</code> 的一个基本规则：<code>reshape</code> 前后的元素总数必须保持一致。</p>
+<h2>三、Tensor 的索引和切片</h2>
+<p>接下来我尝试从 <code>x</code> 中取出一个 token：</p>
+<pre><code class="hljs">token0 = x[<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, :]
+</code></pre>
+<p>因为 <code>x</code> 的 shape 是 <code>[B, S, H, dim]</code>，所以这里的含义分别是：</p>
+<ul>
+<li>第 0 个 batch</li>
+<li>第 0 个 token</li>
+<li>第 0 个 head</li>
+<li>保留全部 dim</li>
+</ul>
+<p>这里的冒号 <code>:</code> 表示这一维全部保留。</p>
+<p>之后还用到了 <code>x[:, 0]</code>，表示保留所有 batch，取第 0 个 token，而后面没有写出的维度默认全部保留。</p>
+<p>这部分让我开始习惯从 Tensor 的 shape 出发理解索引，而不是只把 Tensor 当成普通数组。</p>
+<h2>四、从一个 token 开始实现 RoPE</h2>
+<p>一开始没有直接处理完整的 Tensor，而是先取出一个 <code>dim=16</code> 的 token，并将它分成两半：</p>
+<pre><code class="hljs">first_half = token0[:<span class="hljs-number">8</span>]
+second_half = token0[<span class="hljs-number">8</span>:]
+</code></pre>
+<p>也就是把一个 16 维向量拆成两个 8 维向量。</p>
+<p>接下来创建频率索引：</p>
+<pre><code class="hljs">i = torch.arange(<span class="hljs-number">8</span>, dtype=torch.float32)
+</code></pre>
+<p>并计算：</p>
+<pre><code class="hljs">inv_freq = <span class="hljs-number">10000</span> ** (-i / <span class="hljs-number">8</span>)
+</code></pre>
+<p>之后将它推广成更通用的形式：</p>
+<pre><code class="hljs">i = torch.arange(rope_dim // <span class="hljs-number">2</span>, dtype=torch.float32)
+inv_freq = theta ** (-<span class="hljs-number">2</span> * i / rope_dim)
+</code></pre>
+<p>这样代码就不再依赖固定的 <code>dim=16</code>。</p>
+<h2>五、position、angle 和旋转角度</h2>
+<p>最开始为了让我理解公式，sol 老师设置：</p>
+<pre><code class="hljs">position = <span class="hljs-number">2</span>
+</code></pre>
+<p>然后计算：</p>
+<pre><code class="hljs">angle = position * inv_freq
+cos = torch.cos(angle)
+sin = torch.sin(angle)
+</code></pre>
+<p>这里我开始理解 RoPE 是怎样把 position 加入向量中的。</p>
+<p>position 并不是直接作为一个数字加到 token 上，而是参与计算旋转角度：</p>
+<pre><code class="hljs">angle = position × inv_freq
+</code></pre>
+<p>不同的维度具有不同的 <code>inv_freq</code>，因此同一个 token 的不同维度会得到不同的旋转角度。再之后通过 <code>sin</code> 和 <code>cos</code> 完成真正的旋转。</p>
+<h2>六、实现 RoPE 的旋转公式</h2>
+<p>将 token 分成两半后，我使用：</p>
+<pre><code class="hljs">y_first = first_half * cos - second_half * sin
+y_second = second_half * cos + first_half * sin
+</code></pre>
+<p>这对应二维旋转的形式：</p>
+<pre><code class="hljs">y1 = x1 cosθ - x2 sinθ
+y2 = x2 cosθ + x1 sinθ
+</code></pre>
+<p>计算结束后，再通过：</p>
+<pre><code class="hljs">y = torch.cat([y_first, y_second])
+</code></pre>
+<p>将两部分重新拼接起来。到这里，我第一次完成了一个 token 的 RoPE 计算。</p>
+<p>这一阶段我对 RoPE 最重要的理解是：RoPE 并不是简单地给 token 加上一个位置编号，而是让 token 的向量根据 position 发生旋转，从而把位置信息编码到向量中。</p>
+<h2>七、把固定代码改成 <code>rope()</code> 函数</h2>
+<p>最开始代码中直接写 <code>position = 2</code>，只能计算一个固定的位置。</p>
+<p>后来我把代码改成：</p>
+<pre><code class="hljs"><span class="hljs-keyword">def</span> <span class="hljs-title function_">rope</span>(<span class="hljs-params">x, positions, theta=<span class="hljs-number">10000.0</span></span>):
+    <span class="hljs-comment"># ...</span>
+    <span class="hljs-keyword">return</span> y
+</code></pre>
+<p>这样 <code>x</code>、<code>positions</code> 都由外部传入，而 <code>theta</code> 默认使用 <code>10000.0</code>。外部则可以写：</p>
+<pre><code class="hljs">y = rope(x, positions)
+</code></pre>
+<p>这句话的含义是把 <code>x</code> 和 <code>positions</code> 传入 <code>rope()</code>，执行 RoPE 计算，再把函数返回的结果保存到 <code>y</code> 中。</p>
+<p>这也是我第一次比较完整地理解 Python 中函数参数、默认参数、函数调用和 <code>return</code> 之间的关系。</p>
+<h2>八、从一个 token 推广到完整 Tensor</h2>
+<p>为了让函数不依赖固定的 dim，我使用：</p>
+<pre><code class="hljs">rope_dim = x.shape[-<span class="hljs-number">1</span>]
+</code></pre>
+<p>因为输入 <code>x</code> 的 shape 是 <code>[B, S, H, dim]</code>，所以 <code>x.shape[-1]</code> 就是最后一维 <code>dim</code>。</p>
+<p>随后通过：</p>
+<pre><code class="hljs">x_first = x[..., :rope_dim // <span class="hljs-number">2</span>]
+x_second = x[..., rope_dim // <span class="hljs-number">2</span>:]
+</code></pre>
+<p>将完整 Tensor 的最后一维拆成两半。</p>
+<p>这里的 <code>...</code> 表示前面的维度全部保留，只对最后一个维度进行操作。这样原本只针对一个 token 的代码，就可以处理整个 <code>[B, S, H, dim]</code> Tensor。</p>
+<h2>九、positions 的 shape</h2>
+<p><code>x</code> 的 shape 是 <code>[B, S, H, dim]</code>，而 <code>positions</code> 的 shape 是 <code>[B, S]</code>。</p>
+<p>例如：</p>
+<pre><code class="hljs">positions = torch.arange(<span class="hljs-number">8</span>, dtype=torch.int32).reshape(<span class="hljs-number">1</span>, <span class="hljs-number">8</span>)
+</code></pre>
+<p>会得到：</p>
+<pre><code class="hljs">[[0, 1, 2, 3, 4, 5, 6, 7]]
+</code></pre>
+<p>这表示 token0 的 position 是 0，token1 的 position 是 1，依此类推。</p>
+<p>虽然 <code>x</code> 和 <code>positions</code> 都包含 <code>B</code> 和 <code>S</code> 两个维度，但作用不同。<code>x</code> 保存的是每个 token 真正参与 RoPE 计算的特征向量，而 <code>positions</code> 保存的是每个 token 对应的位置编号。</p>
+<h2>十、unsqueeze 和广播</h2>
+<p>为了计算所有 token 的 angle，我先对 <code>positions</code> 使用：</p>
+<pre><code class="hljs">positions = positions.unsqueeze(-<span class="hljs-number">1</span>)
+</code></pre>
+<p>原来的 shape <code>[B, S]</code> 会变成 <code>[B, S, 1]</code>。然后计算：</p>
+<pre><code class="hljs">angle = positions * inv_freq
+</code></pre>
+<p><code>inv_freq</code> 的 shape 是 <code>[dim/2]</code>。PyTorch 可以利用广播机制自动完成计算，最后得到 <code>[B, S, dim/2]</code> 的 angle。</p>
+<p>之后计算：</p>
+<pre><code class="hljs">cos = torch.cos(angle)
+sin = torch.sin(angle)
+</code></pre>
+<p>但是 <code>x</code> 中还存在 <code>H</code>，也就是 head 这一维，所以我又使用：</p>
+<pre><code class="hljs">cos = cos.unsqueeze(<span class="hljs-number">2</span>)
+sin = sin.unsqueeze(<span class="hljs-number">2</span>)
+</code></pre>
+<p>把 <code>[B, S, dim/2]</code> 变成 <code>[B, S, 1, dim/2]</code>，这样 PyTorch 就可以在 head 这一维上继续进行广播。</p>
+<p>后来把 <code>H</code> 从 1 改成 4 时，代码仍然可以正常运行，也验证了这里的广播方式能够处理多个 head。</p>
+<h2>十一、<code>torch.cat</code> 和 <code>dim=-1</code></h2>
+<p>旋转完成后，需要把 <code>y_first</code> 和 <code>y_second</code> 重新拼接起来：</p>
+<pre><code class="hljs">y = torch.cat([y_first, y_second], dim=-<span class="hljs-number">1</span>)
+</code></pre>
+<p>这里 <code>dim=-1</code> 表示沿最后一个维度进行拼接。例如 <code>[1, 8, 1, 8]</code> 和 <code>[1, 8, 1, 8]</code> 沿最后一维拼接后得到 <code>[1, 8, 1, 16]</code>。学习过程中我曾经误把 <code>dim=-1</code> 写成 <code>dim=1</code>，导致输出的 shape 出错。</p>
+<p>通过这个问题，我理解了 Python/PyTorch 中负数维度的表示方式：<code>-1</code> 表示最后一维，<code>-2</code> 表示倒数第二维，以此类推。</p>
+<p>因此使用 <code>dim=-1</code> 可以比较方便地表示“沿最后一维操作”，而不需要关心 Tensor 一共有多少个维度。</p>
+<h2>十二、用数学性质验证 RoPE 是否正确</h2>
+<p>代码能够运行并不代表结果一定正确，所以我又为 RoPE 做了一些简单的正确性测试。</p>
+<p>第一个测试是让所有 position 都等于 0：</p>
+<pre><code class="hljs">positions = torch.zeros((<span class="hljs-number">1</span>, <span class="hljs-number">8</span>), dtype=torch.int32)
+</code></pre>
+<p>因为 <code>angle = position × inv_freq</code>，当 <code>position=0</code> 时，<code>angle=0</code>，此时 <code>cos(0)=1</code>、<code>sin(0)=0</code>。代入旋转公式后，输出应该与输入完全相同。</p>
+<p>于是使用：</p>
+<pre><code class="hljs">torch.allclose(x, y)
+</code></pre>
+<p>进行比较，最终得到 <code>True</code>。</p>
+<p>第二个测试让不同 token 分别拥有 0、1、2、3……的位置。为了支持任意 batch 数量，可以写成：</p>
+<pre><code class="hljs">positions = torch.arange(S, dtype=torch.int32).unsqueeze(<span class="hljs-number">0</span>).expand(B, -<span class="hljs-number">1</span>)
+</code></pre>
+<p>然后测试：</p>
+<pre><code class="hljs">torch.allclose(x[:, <span class="hljs-number">0</span>], y[:, <span class="hljs-number">0</span>])
+</code></pre>
+<p>结果为 <code>True</code>，因为 token0 的 <code>position=0</code>，没有发生旋转。</p>
+<p>而：</p>
+<pre><code class="hljs">torch.allclose(x[:, <span class="hljs-number">1</span>], y[:, <span class="hljs-number">1</span>])
+</code></pre>
+<p>结果为 <code>False</code>。因为 token1 的 <code>position=1</code>，angle 不再全部为 0，因此经过 RoPE 后向量发生了变化。</p>
+<p>这让我第一次接触到一种比“打印结果看起来对不对”更可靠的验证方法：根据算法本身应该满足的数学性质设计测试。</p>
+<h2>十三、理解不同 Tensor 的 dtype</h2>
+<p>在实现过程中，sol 老师还帮我区分了 <code>float32</code> 和 <code>int32</code> 的用途。</p>
+<p><code>x</code> 使用 <code>dtype=torch.float32</code>，因为 <code>x</code> 表示的是模型中的特征向量，其中可能包含小数。</p>
+<p><code>positions</code> 使用 <code>dtype=torch.int32</code>，因为 position 表示 token 的位置编号，例如 0、1、2、3。</p>
+<p>因此整个过程大致可以表示为：</p>
+<table>
+<thead>
+<tr>
+<th>Tensor</th>
+<th>dtype</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x</code></td>
+<td><code>float32</code></td>
+</tr>
+<tr>
+<td><code>positions</code></td>
+<td><code>int32</code></td>
+</tr>
+<tr>
+<td><code>inv_freq</code></td>
+<td><code>float32</code></td>
+</tr>
+<tr>
+<td><code>angle</code></td>
+<td><code>float32</code></td>
+</tr>
+<tr>
+<td><code>sin/cos</code></td>
+<td><code>float32</code></td>
+</tr>
+<tr>
+<td><code>y</code></td>
+<td><code>float32</code></td>
+</tr>
+</tbody>
+</table>
+<p>我也发现，每次创建新的 Tensor 时都需要单独考虑它自己的 dtype。前一个 <code>torch.arange()</code> 指定了 <code>float32</code>，并不意味着后面创建的 Tensor 会自动继承这个 dtype。</p>
+<h2>十四、把测试代码参数化</h2>
+<p>最开始每换一种输入，都需要手动修改 <code>torch.arange(128)</code> 以及 <code>reshape(1, 8, 1, 16)</code>。这种方式很容易因为只修改其中一个数字而产生错误。</p>
+<p>后来我把输入的四个维度 <code>B</code>、<code>S</code>、<code>H</code>、<code>dim</code> 单独抽出来，并进一步写成测试函数：</p>
+<pre><code class="hljs"><span class="hljs-keyword">def</span> <span class="hljs-title function_">test_rope</span>(<span class="hljs-params">B, S, H, dim</span>):
+    x = torch.arange(
+        B * S * H * dim,
+        dtype=torch.float32,
+    ).reshape(B, S, H, dim)
+
+    positions = torch.arange(
+        S,
+        dtype=torch.int32,
+    ).unsqueeze(<span class="hljs-number">0</span>).expand(B, -<span class="hljs-number">1</span>)
+
+    y = rope(x, positions)
+</code></pre>
+<p>这样就可以通过：</p>
+<pre><code class="hljs">test_rope(<span class="hljs-number">1</span>, <span class="hljs-number">8</span>, <span class="hljs-number">1</span>, <span class="hljs-number">16</span>)
+test_rope(<span class="hljs-number">1</span>, <span class="hljs-number">8</span>, <span class="hljs-number">4</span>, <span class="hljs-number">16</span>)
+</code></pre>
+<p>来测试不同的输入，而不需要修改 <code>rope()</code> 本身。</p>
+<p>最后还测试了更大的 shape <code>[1, 128, 8, 64]</code>，输出依然保持：</p>
+<pre><code class="hljs">input shape = output shape
+token0 unchanged: True
+token1 unchanged: False
+</code></pre>
+<p>这说明目前的 PyTorch 实现已经不再只适用于最开始的固定例子，而是可以处理不同的 <code>S</code>、<code>H</code> 和 <code>dim</code>。</p>
+<h2>十五、目前完成的内容</h2>
+<p>现在已经完成了 RoPE 的 PyTorch Reference 版本。这个版本并不是最终比赛需要提交的 NPU 算子，而是后续实现 Ascend C Kernel 时用来验证结果是否正确的参考实现。</p>
+<p>下一阶段准备开始学习 Ascend C 的基本结构，包括 Tensor 在内存中的布局、GM 和 Local Buffer、数据搬运、向量计算以及 tiling，并尝试把现在的 PyTorch RoPE 一步一步转换成真正运行在 NPU 上的 Kernel。</p>
+<p>RoPE 公式在我眼里，终于从一串完全陌生的数学表达式，变成了“位置 → 角度 → sin/cos → 向量旋转 → 拼接”的计算过程。我还了解到了一些全新的词汇，那个下午给我的感觉是拦住知识河流的堤坝突然开始泄洪，而我只是路过。</p>
+<p>至于意外收获，大概就是 sol 老师加入的少量工程思维吧：不把维度写死、把算法和测试分开、用数学性质验证正确性，以及把 PyTorch 实现作为后续 Ascend C 算子的 reference 之类的。</p>
+<p>哦对了，sol 老师是 gpt-5.6-sol。如果这是一篇论文的话，我应该把它写进致谢里，可惜了这不是。</p>
+</div>
+    </article>
+    </div>
+    <nav class="article-nav" aria-label="文章导航">
+      <a href="/notes/">← 返回Study Note列表</a>
+      <a href="/">返回首页 ♡</a>
+    </nav>
+  </main>
+  <footer class="footer"><div class="shell footer-row"><span>Lelelya's Blog</span><span>thanks for visiting ☆</span></div></footer>
+  <script src="/assets/site.js"></script>
+</body>
+</html>

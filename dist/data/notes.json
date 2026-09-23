@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "title": "RoPE 算子学习笔记（一）：从公式到 PyTorch Reference 实现",
+    "date": "2026-09-22",
+    "tags": [
+      "RoPE",
+      "PyTorch",
+      "算子"
+    ],
+    "url": "/notes/rope-reference-1/"
+  }
+]

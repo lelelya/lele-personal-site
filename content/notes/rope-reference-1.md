@@ -1,0 +1,383 @@
+---
+title: RoPE 算子学习笔记（一）：从公式到 PyTorch Reference 实现
+date: "2026-09-22"
+type: notes
+tags:
+  - RoPE
+  - PyTorch
+  - 算子
+---
+
+在阅读这篇笔记之前，我得对其他人或者未来的我声明：也许你觉得我记下来的东西有点蠢，但请不要嘲笑我……(つД`)ノ 这些对 2026.9.22 的我来说已经很难了口牙。
+
+看到 AI 算子开发与性能优化的挑战赛报名通知的时候，我发现我连算子是什么都不知道。那就只好现在开始学了！再借此写个和学习有关的文章放到博客上，说不定还能混入某社团，对的对的。
+
+## 一、环境准备
+
+这次学习的目标是尝试实现 RoPE（Rotary Position Embedding，旋转位置编码），并为之后使用 Ascend C 实现 RoPE 算子做准备。
+
+因为之前没有系统使用过 PyTorch，所以我首先从配置 Python 和 PyTorch 环境开始。
+
+电脑上已经安装了 Python 3.14，但最开始运行：
+
+```python
+import torch
+```
+
+时出现了：
+
+```text
+ModuleNotFoundError: No module named 'torch'
+```
+
+于是我通过 pip 安装了 PyTorch。过程中还遇到了 NumPy 缺失、版本输出写法错误等问题，最后成功运行 PyTorch。
+
+这一部分主要熟悉了 Python 包的安装、`import` 的作用，以及如何在编辑器和终端中运行 Python 文件。
+
+## 二、认识 Tensor 和 shape
+
+正式开始 RoPE 之前，sol 老师先带我用 PyTorch 创建了一组简单的数据：
+
+```python
+x = torch.arange(128, dtype=torch.float32)
+x = x.reshape(1, 8, 1, 16)
+```
+
+`torch.arange(128)` 会产生从 0 到 127 的 128 个数字。最开始这些数据是一维的，而 `reshape` 可以在不改变数据总量的情况下重新组织 Tensor 的形状。
+
+这里将 `x` reshape 成了 `[1, 8, 1, 16]`，对应 `[B, S, H, dim]`。其中 `B` 表示 batch，`S` 表示序列长度，`H` 表示 head 数量，`dim` 表示每个 head 的维度。
+
+在后面的测试中，我尝试把 shape 从 `[1, 8, 1, 16]` 改成 `[1, 8, 1, 32]`，但仍然只创建了 128 个元素，因此出现报错。因为 1 × 8 × 1 × 16 = 128，而 1 × 8 × 1 × 32 = 256……这让我理解了 `reshape` 的一个基本规则：`reshape` 前后的元素总数必须保持一致。
+
+## 三、Tensor 的索引和切片
+
+接下来我尝试从 `x` 中取出一个 token：
+
+```python
+token0 = x[0, 0, 0, :]
+```
+
+因为 `x` 的 shape 是 `[B, S, H, dim]`，所以这里的含义分别是：
+
+- 第 0 个 batch
+- 第 0 个 token
+- 第 0 个 head
+- 保留全部 dim
+
+这里的冒号 `:` 表示这一维全部保留。
+
+之后还用到了 `x[:, 0]`，表示保留所有 batch，取第 0 个 token，而后面没有写出的维度默认全部保留。
+
+这部分让我开始习惯从 Tensor 的 shape 出发理解索引，而不是只把 Tensor 当成普通数组。
+
+## 四、从一个 token 开始实现 RoPE
+
+一开始没有直接处理完整的 Tensor，而是先取出一个 `dim=16` 的 token，并将它分成两半：
+
+```python
+first_half = token0[:8]
+second_half = token0[8:]
+```
+
+也就是把一个 16 维向量拆成两个 8 维向量。
+
+接下来创建频率索引：
+
+```python
+i = torch.arange(8, dtype=torch.float32)
+```
+
+并计算：
+
+```python
+inv_freq = 10000 ** (-i / 8)
+```
+
+之后将它推广成更通用的形式：
+
+```python
+i = torch.arange(rope_dim // 2, dtype=torch.float32)
+inv_freq = theta ** (-2 * i / rope_dim)
+```
+
+这样代码就不再依赖固定的 `dim=16`。
+
+## 五、position、angle 和旋转角度
+
+最开始为了让我理解公式，sol 老师设置：
+
+```python
+position = 2
+```
+
+然后计算：
+
+```python
+angle = position * inv_freq
+cos = torch.cos(angle)
+sin = torch.sin(angle)
+```
+
+这里我开始理解 RoPE 是怎样把 position 加入向量中的。
+
+position 并不是直接作为一个数字加到 token 上，而是参与计算旋转角度：
+
+```text
+angle = position × inv_freq
+```
+
+不同的维度具有不同的 `inv_freq`，因此同一个 token 的不同维度会得到不同的旋转角度。再之后通过 `sin` 和 `cos` 完成真正的旋转。
+
+## 六、实现 RoPE 的旋转公式
+
+将 token 分成两半后，我使用：
+
+```python
+y_first = first_half * cos - second_half * sin
+y_second = second_half * cos + first_half * sin
+```
+
+这对应二维旋转的形式：
+
+```text
+y1 = x1 cosθ - x2 sinθ
+y2 = x2 cosθ + x1 sinθ
+```
+
+计算结束后，再通过：
+
+```python
+y = torch.cat([y_first, y_second])
+```
+
+将两部分重新拼接起来。到这里，我第一次完成了一个 token 的 RoPE 计算。
+
+这一阶段我对 RoPE 最重要的理解是：RoPE 并不是简单地给 token 加上一个位置编号，而是让 token 的向量根据 position 发生旋转，从而把位置信息编码到向量中。
+
+## 七、把固定代码改成 `rope()` 函数
+
+最开始代码中直接写 `position = 2`，只能计算一个固定的位置。
+
+后来我把代码改成：
+
+```python
+def rope(x, positions, theta=10000.0):
+    # ...
+    return y
+```
+
+这样 `x`、`positions` 都由外部传入，而 `theta` 默认使用 `10000.0`。外部则可以写：
+
+```python
+y = rope(x, positions)
+```
+
+这句话的含义是把 `x` 和 `positions` 传入 `rope()`，执行 RoPE 计算，再把函数返回的结果保存到 `y` 中。
+
+这也是我第一次比较完整地理解 Python 中函数参数、默认参数、函数调用和 `return` 之间的关系。
+
+## 八、从一个 token 推广到完整 Tensor
+
+为了让函数不依赖固定的 dim，我使用：
+
+```python
+rope_dim = x.shape[-1]
+```
+
+因为输入 `x` 的 shape 是 `[B, S, H, dim]`，所以 `x.shape[-1]` 就是最后一维 `dim`。
+
+随后通过：
+
+```python
+x_first = x[..., :rope_dim // 2]
+x_second = x[..., rope_dim // 2:]
+```
+
+将完整 Tensor 的最后一维拆成两半。
+
+这里的 `...` 表示前面的维度全部保留，只对最后一个维度进行操作。这样原本只针对一个 token 的代码，就可以处理整个 `[B, S, H, dim]` Tensor。
+
+## 九、positions 的 shape
+
+`x` 的 shape 是 `[B, S, H, dim]`，而 `positions` 的 shape 是 `[B, S]`。
+
+例如：
+
+```python
+positions = torch.arange(8, dtype=torch.int32).reshape(1, 8)
+```
+
+会得到：
+
+```text
+[[0, 1, 2, 3, 4, 5, 6, 7]]
+```
+
+这表示 token0 的 position 是 0，token1 的 position 是 1，依此类推。
+
+虽然 `x` 和 `positions` 都包含 `B` 和 `S` 两个维度，但作用不同。`x` 保存的是每个 token 真正参与 RoPE 计算的特征向量，而 `positions` 保存的是每个 token 对应的位置编号。
+
+## 十、unsqueeze 和广播
+
+为了计算所有 token 的 angle，我先对 `positions` 使用：
+
+```python
+positions = positions.unsqueeze(-1)
+```
+
+原来的 shape `[B, S]` 会变成 `[B, S, 1]`。然后计算：
+
+```python
+angle = positions * inv_freq
+```
+
+`inv_freq` 的 shape 是 `[dim/2]`。PyTorch 可以利用广播机制自动完成计算，最后得到 `[B, S, dim/2]` 的 angle。
+
+之后计算：
+
+```python
+cos = torch.cos(angle)
+sin = torch.sin(angle)
+```
+
+但是 `x` 中还存在 `H`，也就是 head 这一维，所以我又使用：
+
+```python
+cos = cos.unsqueeze(2)
+sin = sin.unsqueeze(2)
+```
+
+把 `[B, S, dim/2]` 变成 `[B, S, 1, dim/2]`，这样 PyTorch 就可以在 head 这一维上继续进行广播。
+
+后来把 `H` 从 1 改成 4 时，代码仍然可以正常运行，也验证了这里的广播方式能够处理多个 head。
+
+## 十一、`torch.cat` 和 `dim=-1`
+
+旋转完成后，需要把 `y_first` 和 `y_second` 重新拼接起来：
+
+```python
+y = torch.cat([y_first, y_second], dim=-1)
+```
+
+这里 `dim=-1` 表示沿最后一个维度进行拼接。例如 `[1, 8, 1, 8]` 和 `[1, 8, 1, 8]` 沿最后一维拼接后得到 `[1, 8, 1, 16]`。学习过程中我曾经误把 `dim=-1` 写成 `dim=1`，导致输出的 shape 出错。
+
+通过这个问题，我理解了 Python/PyTorch 中负数维度的表示方式：`-1` 表示最后一维，`-2` 表示倒数第二维，以此类推。
+
+因此使用 `dim=-1` 可以比较方便地表示“沿最后一维操作”，而不需要关心 Tensor 一共有多少个维度。
+
+## 十二、用数学性质验证 RoPE 是否正确
+
+代码能够运行并不代表结果一定正确，所以我又为 RoPE 做了一些简单的正确性测试。
+
+第一个测试是让所有 position 都等于 0：
+
+```python
+positions = torch.zeros((1, 8), dtype=torch.int32)
+```
+
+因为 `angle = position × inv_freq`，当 `position=0` 时，`angle=0`，此时 `cos(0)=1`、`sin(0)=0`。代入旋转公式后，输出应该与输入完全相同。
+
+于是使用：
+
+```python
+torch.allclose(x, y)
+```
+
+进行比较，最终得到 `True`。
+
+第二个测试让不同 token 分别拥有 0、1、2、3……的位置。为了支持任意 batch 数量，可以写成：
+
+```python
+positions = torch.arange(S, dtype=torch.int32).unsqueeze(0).expand(B, -1)
+```
+
+然后测试：
+
+```python
+torch.allclose(x[:, 0], y[:, 0])
+```
+
+结果为 `True`，因为 token0 的 `position=0`，没有发生旋转。
+
+而：
+
+```python
+torch.allclose(x[:, 1], y[:, 1])
+```
+
+结果为 `False`。因为 token1 的 `position=1`，angle 不再全部为 0，因此经过 RoPE 后向量发生了变化。
+
+这让我第一次接触到一种比“打印结果看起来对不对”更可靠的验证方法：根据算法本身应该满足的数学性质设计测试。
+
+## 十三、理解不同 Tensor 的 dtype
+
+在实现过程中，sol 老师还帮我区分了 `float32` 和 `int32` 的用途。
+
+`x` 使用 `dtype=torch.float32`，因为 `x` 表示的是模型中的特征向量，其中可能包含小数。
+
+`positions` 使用 `dtype=torch.int32`，因为 position 表示 token 的位置编号，例如 0、1、2、3。
+
+因此整个过程大致可以表示为：
+
+| Tensor | dtype |
+| --- | --- |
+| `x` | `float32` |
+| `positions` | `int32` |
+| `inv_freq` | `float32` |
+| `angle` | `float32` |
+| `sin/cos` | `float32` |
+| `y` | `float32` |
+
+我也发现，每次创建新的 Tensor 时都需要单独考虑它自己的 dtype。前一个 `torch.arange()` 指定了 `float32`，并不意味着后面创建的 Tensor 会自动继承这个 dtype。
+
+## 十四、把测试代码参数化
+
+最开始每换一种输入，都需要手动修改 `torch.arange(128)` 以及 `reshape(1, 8, 1, 16)`。这种方式很容易因为只修改其中一个数字而产生错误。
+
+后来我把输入的四个维度 `B`、`S`、`H`、`dim` 单独抽出来，并进一步写成测试函数：
+
+```python
+def test_rope(B, S, H, dim):
+    x = torch.arange(
+        B * S * H * dim,
+        dtype=torch.float32,
+    ).reshape(B, S, H, dim)
+
+    positions = torch.arange(
+        S,
+        dtype=torch.int32,
+    ).unsqueeze(0).expand(B, -1)
+
+    y = rope(x, positions)
+```
+
+这样就可以通过：
+
+```python
+test_rope(1, 8, 1, 16)
+test_rope(1, 8, 4, 16)
+```
+
+来测试不同的输入，而不需要修改 `rope()` 本身。
+
+最后还测试了更大的 shape `[1, 128, 8, 64]`，输出依然保持：
+
+```text
+input shape = output shape
+token0 unchanged: True
+token1 unchanged: False
+```
+
+这说明目前的 PyTorch 实现已经不再只适用于最开始的固定例子，而是可以处理不同的 `S`、`H` 和 `dim`。
+
+## 十五、目前完成的内容
+
+现在已经完成了 RoPE 的 PyTorch Reference 版本。这个版本并不是最终比赛需要提交的 NPU 算子，而是后续实现 Ascend C Kernel 时用来验证结果是否正确的参考实现。
+
+下一阶段准备开始学习 Ascend C 的基本结构，包括 Tensor 在内存中的布局、GM 和 Local Buffer、数据搬运、向量计算以及 tiling，并尝试把现在的 PyTorch RoPE 一步一步转换成真正运行在 NPU 上的 Kernel。
+
+RoPE 公式在我眼里，终于从一串完全陌生的数学表达式，变成了“位置 → 角度 → sin/cos → 向量旋转 → 拼接”的计算过程。我还了解到了一些全新的词汇，那个下午给我的感觉是拦住知识河流的堤坝突然开始泄洪，而我只是路过。
+
+至于意外收获，大概就是 sol 老师加入的少量工程思维吧：不把维度写死、把算法和测试分开、用数学性质验证正确性，以及把 PyTorch 实现作为后续 Ascend C 算子的 reference 之类的。
+
+哦对了，sol 老师是 gpt-5.6-sol。如果这是一篇论文的话，我应该把它写进致谢里，可惜了这不是。
