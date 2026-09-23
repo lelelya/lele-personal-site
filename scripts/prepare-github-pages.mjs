@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = path.join(root, 'dist', 'client');
 const target = path.join(root, 'dist', 'pages');
-const base = '/lele-personal-site/';
+const base = '/';
 const textExtensions = new Set(['.html', '.css', '.js', '.json', '.xml', '.txt']);
 
 await rm(target, { recursive: true, force: true });
